@@ -85,6 +85,10 @@ namespace Planetarium3D
 
         private List<CelestialBody> _planets = new List<CelestialBody>();
 
+        // --- ZMIENNE DO ŚLEDZENIA (WIDOK Z POWIERZCHNI) ---
+        private bool _isLockedToPlanet = false; // Czy kamera jest przyklejona do planety?
+        private int _lockedPlanetIndex = 0;     // Indeks śledzonej planety na liście
+
         public PlanetariumWindow(GameWindowSettings gameSettings, NativeWindowSettings nativeSettings)
             : base(gameSettings, nativeSettings) { }
 
@@ -235,12 +239,46 @@ namespace Planetarium3D
 
             if (input.IsKeyDown(Keys.Escape)) Close();
 
-            // 1. STEROWANIE CZASEM
-            if (input.IsKeyDown(Keys.Up)) _timeSpeed += 2.0f * delta;   // Szybszy przyrost
+            // --- 1. STEROWANIE CZASEM ---
+            if (input.IsKeyDown(Keys.Up)) _timeSpeed += 2.0f * delta;
             if (input.IsKeyDown(Keys.Down)) _timeSpeed -= 2.0f * delta;
             if (_timeSpeed < 0) _timeSpeed = 0;
 
-            // 2. STEROWANIE KAMERĄ (MYSZKA - OBRÓT)
+            // --- 2. PRZEŁĄCZANIE WIDOKU (NOWOŚĆ) ---
+            // Używamy IsKeyPressed (działa jednorazowo przy kliknięciu), żeby nie migało
+            if (input.IsKeyPressed(Keys.Tab))
+            {
+                _isLockedToPlanet = !_isLockedToPlanet;
+
+                // Reset ustawień kamery przy zmianie trybu dla wygody
+                if (_isLockedToPlanet)
+                {
+                    // Przybliż do powierzchni przy wejściu w tryb śledzenia
+                    _cameraDistance = _planets[_lockedPlanetIndex].Size * 3.0f;
+                }
+                else
+                {
+                    // Oddal przy powrocie do widoku ogólnego
+                    _cameraDistance = 50.0f;
+                }
+            }
+
+            // Zmiana planety (Lewo/Prawo) tylko gdy jesteśmy w trybie śledzenia
+            if (_isLockedToPlanet)
+            {
+                if (input.IsKeyPressed(Keys.Right))
+                {
+                    _lockedPlanetIndex++;
+                    if (_lockedPlanetIndex >= _planets.Count) _lockedPlanetIndex = 0;
+                }
+                if (input.IsKeyPressed(Keys.Left))
+                {
+                    _lockedPlanetIndex--;
+                    if (_lockedPlanetIndex < 0) _lockedPlanetIndex = _planets.Count - 1;
+                }
+            }
+
+            // --- 3. STEROWANIE KAMERĄ (MYSZKA) ---
             if (_firstMove)
             {
                 _lastMousePos = new Vector2(mouse.X, mouse.Y);
@@ -248,7 +286,6 @@ namespace Planetarium3D
             }
             else
             {
-                // Obracamy tylko gdy lewy przycisk jest wciśnięty
                 if (mouse.IsButtonDown(MouseButton.Left))
                 {
                     float deltaX = mouse.X - _lastMousePos.X;
@@ -258,27 +295,36 @@ namespace Planetarium3D
                     _yaw += deltaX * sensitivity;
                     _pitch -= deltaY * sensitivity;
 
-                    // Blokada "fikołków"
                     if (_pitch > 89.0f) _pitch = 89.0f;
                     if (_pitch < -89.0f) _pitch = -89.0f;
                 }
                 _lastMousePos = new Vector2(mouse.X, mouse.Y);
             }
 
-            // 3. STEROWANIE KAMERĄ (SCROLL - ZOOM)
+            // --- 4. STEROWANIE ZOOMEM (SCROLL) ---
             float scroll = mouse.ScrollDelta.Y;
             _cameraDistance -= scroll * 2.0f;
 
-            if (_cameraDistance < 5.0f) _cameraDistance = 5.0f;
+            // Zabezpieczenie zooma:
+            // Jeśli śledzimy planetę, nie pozwalamy wejść "pod ziemię" (minimalny dystans to rozmiar planety)
+            float minZoom = 2.0f;
+            if (_isLockedToPlanet)
+            {
+                minZoom = _planets[_lockedPlanetIndex].Size * 1.2f; // 1.2x promienia, żeby nie przenikać tekstury
+            }
+
+            if (_cameraDistance < minZoom) _cameraDistance = minZoom;
             if (_cameraDistance > 300.0f) _cameraDistance = 300.0f;
 
-            // 4. AKTUALIZACJA PLANET
+            // --- 5. AKTUALIZACJA FIZYKI PLANET ---
             foreach (var planet in _planets)
             {
                 planet.Update(delta, _timeSpeed);
             }
 
-            Title = $"Planetarium | Czas: x{_timeSpeed:F1} | LPM+Mysz: Obrót | Scroll: Zoom";
+            // Aktualizacja tytułu okna
+            string modeInfo = _isLockedToPlanet ? $"Śledzenie: {_planets[_lockedPlanetIndex].Name}" : "Widok swobodny";
+            Title = $"Planetarium | {modeInfo} | Czas: x{_timeSpeed:F1} | [TAB] Zmień widok | [Strzałki] Czas/Planeta";
         }
 
         protected override void OnRenderFrame(FrameEventArgs args)
@@ -289,17 +335,33 @@ namespace Planetarium3D
             GL.UseProgram(_shaderProgram);
             GL.BindVertexArray(_vao);
 
-            // Obliczanie pozycji kamery na podstawie Yaw, Pitch i Distance
+            // --- OBLICZANIE POZYCJI KAMERY ---
+
+            // 1. Ustal punkt skupienia (Focus Point)
+            Vector3 targetPosition = Vector3.Zero; // Domyślnie Słońce (0,0,0)
+
+            if (_isLockedToPlanet)
+            {
+                // Jeśli śledzimy, punktem skupienia jest aktualna pozycja planety
+                targetPosition = _planets[_lockedPlanetIndex].GetPosition();
+            }
+
+            // 2. Oblicz pozycję kamery względem punktu skupienia (sferycznie)
             float camX = _cameraDistance * (float)Math.Cos(MathHelper.DegreesToRadians(_pitch)) * (float)Math.Cos(MathHelper.DegreesToRadians(_yaw));
             float camY = _cameraDistance * (float)Math.Sin(MathHelper.DegreesToRadians(_pitch));
             float camZ = _cameraDistance * (float)Math.Cos(MathHelper.DegreesToRadians(_pitch)) * (float)Math.Sin(MathHelper.DegreesToRadians(_yaw));
 
-            Vector3 cameraPosition = new Vector3(camX, camY, camZ);
-            Matrix4 view = Matrix4.LookAt(cameraPosition, Vector3.Zero, Vector3.UnitY);
+            // 3. Pozycja finalna to: Pozycja Planety + Offset Kamery
+            Vector3 cameraPosition = targetPosition + new Vector3(camX, camY, camZ);
+
+            // 4. Matrix View: Kamera patrzy NA targetPosition
+            Matrix4 view = Matrix4.LookAt(cameraPosition, targetPosition, Vector3.UnitY);
+
             Matrix4 projection = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(45.0f), Size.X / (float)Size.Y, 0.1f, 1000.0f);
 
             GL.UniformMatrix4(GL.GetUniformLocation(_shaderProgram, "view"), false, ref view);
             GL.UniformMatrix4(GL.GetUniformLocation(_shaderProgram, "projection"), false, ref projection);
+
             int modelLoc = GL.GetUniformLocation(_shaderProgram, "model");
 
             foreach (var planet in _planets)
