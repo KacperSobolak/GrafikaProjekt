@@ -18,6 +18,7 @@ namespace Planetarium3D
         public float OrbitSpeed;
         public float CurrentAngle;
         public bool IsSun = false;
+        public float LocalRotationsPerYear;
 
         public CelestialBody Parent;
 
@@ -38,7 +39,7 @@ namespace Planetarium3D
         public Matrix4 GetModelMatrix()
         {
             Matrix4 model = Matrix4.CreateScale(Size);
-            model *= Matrix4.CreateRotationY(CurrentAngle * 2.0f);
+            model *= Matrix4.CreateRotationY(CurrentAngle * LocalRotationsPerYear);
             Vector3 finalPosition = GetPosition();
             model *= Matrix4.CreateTranslation(finalPosition);
             return model;
@@ -85,9 +86,6 @@ namespace Planetarium3D
             InitializeShaders();
             InitializeSphereMesh();
             InitializeSolarSystem();
-
-            Console.WriteLine("OpenGL version: " + GL.GetString(StringName.Version));
-            Console.WriteLine("Shader compiled successfully");
         }
 
         private void InitializeSolarSystem()
@@ -103,10 +101,9 @@ namespace Planetarium3D
                     return new Texture(fullPath);
                 }
                 Console.WriteLine($"[BŁĄD] Brak pliku: {fullPath}");
-                return new Texture(""); // Fallback texture
+                return new Texture("");
             }
 
-            // SŁOŃCE
             _planets.Add(new CelestialBody
             {
                 Name = "Sun",
@@ -117,24 +114,21 @@ namespace Planetarium3D
                 IsSun = true
             });
 
-            // MERKURY
-            _planets.Add(new CelestialBody { Name = "Mercury", PlanetTexture = LoadTex("2k_mercury.jpg"), Size = 0.4f, OrbitRadius = 6.0f, OrbitSpeed = 1.6f });
+            _planets.Add(new CelestialBody { Name = "Mercury", PlanetTexture = LoadTex("2k_mercury.jpg"), Size = 0.4f, OrbitRadius = 6.0f, OrbitSpeed = 1.6f, LocalRotationsPerYear = 1.5f });
 
-            // WENUS
-            _planets.Add(new CelestialBody { Name = "Venus", PlanetTexture = LoadTex("2k_venus_surface.jpg"), Size = 0.9f, OrbitRadius = 9.0f, OrbitSpeed = 1.2f });
+            _planets.Add(new CelestialBody { Name = "Venus", PlanetTexture = LoadTex("2k_venus_surface.jpg"), Size = 0.9f, OrbitRadius = 9.0f, OrbitSpeed = 1.2f, LocalRotationsPerYear = -0.92f });
 
-            // ZIEMIA
             var earth = new CelestialBody
             {
                 Name = "Earth",
                 PlanetTexture = LoadTex("2k_earth_daymap.jpg"),
                 Size = 1.0f,
                 OrbitRadius = 13.0f,
-                OrbitSpeed = 1.0f
+                OrbitSpeed = 1.0f,
+                LocalRotationsPerYear = 365f
             };
             _planets.Add(earth);
 
-            // KSIĘŻYC
             _planets.Add(new CelestialBody
             {
                 Name = "Moon",
@@ -142,23 +136,19 @@ namespace Planetarium3D
                 Size = 0.27f,
                 OrbitRadius = 2.5f,
                 OrbitSpeed = 12.0f,
-                Parent = earth
+                Parent = earth,
+                LocalRotationsPerYear = -1f
             });
 
-            // MARS
-            _planets.Add(new CelestialBody { Name = "Mars", PlanetTexture = LoadTex("2k_mars.jpg"), Size = 0.6f, OrbitRadius = 17.0f, OrbitSpeed = 0.8f });
+            _planets.Add(new CelestialBody { Name = "Mars", PlanetTexture = LoadTex("2k_mars.jpg"), Size = 0.6f, OrbitRadius = 17.0f, OrbitSpeed = 0.8f, LocalRotationsPerYear = 669f });
 
-            // JOWISZ
-            _planets.Add(new CelestialBody { Name = "Jupiter", PlanetTexture = LoadTex("2k_jupiter.jpg"), Size = 2.8f, OrbitRadius = 26.0f, OrbitSpeed = 0.4f });
+            _planets.Add(new CelestialBody { Name = "Jupiter", PlanetTexture = LoadTex("2k_jupiter.jpg"), Size = 2.8f, OrbitRadius = 26.0f, OrbitSpeed = 0.4f, LocalRotationsPerYear = 10500f });
 
-            // SATURN
-            _planets.Add(new CelestialBody { Name = "Saturn", PlanetTexture = LoadTex("2k_saturn.jpg"), Size = 2.4f, OrbitRadius = 36.0f, OrbitSpeed = 0.3f });
+            _planets.Add(new CelestialBody { Name = "Saturn", PlanetTexture = LoadTex("2k_saturn.jpg"), Size = 2.4f, OrbitRadius = 36.0f, OrbitSpeed = 0.3f, LocalRotationsPerYear = 24600f });
 
-            // URAN
-            _planets.Add(new CelestialBody { Name = "Uranus", PlanetTexture = LoadTex("2k_uranus.jpg"), Size = 1.8f, OrbitRadius = 46.0f, OrbitSpeed = 0.2f });
+            _planets.Add(new CelestialBody { Name = "Uranus", PlanetTexture = LoadTex("2k_uranus.jpg"), Size = 1.8f, OrbitRadius = 46.0f, OrbitSpeed = 0.2f, LocalRotationsPerYear = -42500f });
 
-            // NEPTUN
-            _planets.Add(new CelestialBody { Name = "Neptune", PlanetTexture = LoadTex("2k_neptune.jpg"), Size = 1.7f, OrbitRadius = 56.0f, OrbitSpeed = 0.15f });
+            _planets.Add(new CelestialBody { Name = "Neptune", PlanetTexture = LoadTex("2k_neptune.jpg"), Size = 1.7f, OrbitRadius = 56.0f, OrbitSpeed = 0.15f, LocalRotationsPerYear = 90500f });
         }
 
         private void InitializeSphereMesh()
@@ -187,11 +177,8 @@ namespace Planetarium3D
                     float u = (float)lon / longitudeBands;
                     float v = (float)lat / latitudeBands;
 
-                    // Position
                     vertices.Add(x); vertices.Add(y); vertices.Add(z);
-                    // Texture coordinates
                     vertices.Add(u); vertices.Add(v);
-                    // Normal (same as position for unit sphere)
                     vertices.Add(x); vertices.Add(y); vertices.Add(z);
                 }
             }
@@ -222,15 +209,12 @@ namespace Planetarium3D
             GL.BindBuffer(BufferTarget.ElementArrayBuffer, _ebo);
             GL.BufferData(BufferTarget.ElementArrayBuffer, finalIndices.Length * sizeof(uint), finalIndices, BufferUsageHint.StaticDraw);
 
-            // Position attribute
             GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 8 * sizeof(float), 0);
             GL.EnableVertexAttribArray(0);
 
-            // Texture coordinate attribute
             GL.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 8 * sizeof(float), 3 * sizeof(float));
             GL.EnableVertexAttribArray(1);
 
-            // Normal attribute
             GL.VertexAttribPointer(2, 3, VertexAttribPointerType.Float, false, 8 * sizeof(float), 5 * sizeof(float));
             GL.EnableVertexAttribArray(2);
 
@@ -247,12 +231,10 @@ namespace Planetarium3D
 
             if (input.IsKeyDown(Keys.Escape)) Close();
 
-            // Time control
             if (input.IsKeyDown(Keys.Up)) _timeSpeed += 2.0f * delta;
             if (input.IsKeyDown(Keys.Down)) _timeSpeed -= 2.0f * delta;
             if (_timeSpeed < 0) _timeSpeed = 0;
 
-            // View switching
             if (input.IsKeyPressed(Keys.Tab))
             {
                 _isLockedToPlanet = !_isLockedToPlanet;
@@ -266,7 +248,6 @@ namespace Planetarium3D
                 }
             }
 
-            // Planet switching
             if (_isLockedToPlanet)
             {
                 if (input.IsKeyPressed(Keys.Right))
@@ -281,7 +262,6 @@ namespace Planetarium3D
                 }
             }
 
-            // Camera control
             if (_firstMove)
             {
                 _lastMousePos = new Vector2(mouse.X, mouse.Y);
@@ -304,7 +284,6 @@ namespace Planetarium3D
                 _lastMousePos = new Vector2(mouse.X, mouse.Y);
             }
 
-            // Zoom
             float scroll = mouse.ScrollDelta.Y;
             _cameraDistance -= scroll * 2.0f;
 
@@ -317,13 +296,11 @@ namespace Planetarium3D
             if (_cameraDistance < minZoom) _cameraDistance = minZoom;
             if (_cameraDistance > 300.0f) _cameraDistance = 300.0f;
 
-            // Update planets
             foreach (var planet in _planets)
             {
                 planet.Update(delta, _timeSpeed);
             }
 
-            // Update title
             string modeInfo = _isLockedToPlanet ? $"Śledzenie: {_planets[_lockedPlanetIndex].Name}" : "Widok swobodny";
             Title = $"Planetarium | {modeInfo} | Czas: x{_timeSpeed:F1} | [TAB] Zmień widok | [Strzałki] Czas/Planeta";
         }
@@ -336,7 +313,6 @@ namespace Planetarium3D
             GL.UseProgram(_shaderProgram);
             GL.BindVertexArray(_vao);
 
-            // Calculate camera
             Vector3 targetPosition = Vector3.Zero;
             if (_isLockedToPlanet)
             {
@@ -351,18 +327,15 @@ namespace Planetarium3D
             Matrix4 view = Matrix4.LookAt(cameraPosition, targetPosition, Vector3.UnitY);
             Matrix4 projection = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(45.0f), Size.X / (float)Size.Y, 0.1f, 1000.0f);
 
-            // Set matrices
             GL.UniformMatrix4(GL.GetUniformLocation(_shaderProgram, "view"), false, ref view);
             GL.UniformMatrix4(GL.GetUniformLocation(_shaderProgram, "projection"), false, ref projection);
 
-            // Set sun position
             Vector3 sunPosition = _planets[0].GetPosition();
             GL.Uniform3(GL.GetUniformLocation(_shaderProgram, "sunPosition"), sunPosition);
 
             int modelLoc = GL.GetUniformLocation(_shaderProgram, "model");
             int isSunLoc = GL.GetUniformLocation(_shaderProgram, "isSun");
 
-            // Render planets
             foreach (var planet in _planets)
             {
                 if (planet.PlanetTexture != null)
@@ -371,7 +344,6 @@ namespace Planetarium3D
                 Matrix4 model = planet.GetModelMatrix();
                 GL.UniformMatrix4(modelLoc, false, ref model);
 
-                // Use int instead of bool for compatibility
                 GL.Uniform1(isSunLoc, planet.IsSun ? 1 : 0);
 
                 GL.DrawElements(PrimitiveType.Triangles, _vertexCount, DrawElementsType.UnsignedInt, 0);
@@ -388,21 +360,20 @@ namespace Planetarium3D
 
         private void InitializeShaders()
         {
-            // Simple vertex shader
             string vertSource = @"
                 #version 330 core
                 layout (location = 0) in vec3 aPosition;
                 layout (location = 1) in vec2 aTexCoord;
                 layout (location = 2) in vec3 aNormal;
-                
+
                 out vec2 TexCoord;
                 out vec3 Normal;
                 out vec3 FragPos;
-                
+
                 uniform mat4 model;
                 uniform mat4 view;
                 uniform mat4 projection;
-                
+
                 void main()
                 {
                     gl_Position = projection * view * model * vec4(aPosition, 1.0);
@@ -411,38 +382,37 @@ namespace Planetarium3D
                     FragPos = vec3(model * vec4(aPosition, 1.0));
                 }";
 
-            // Fragment shader with lighting
             string fragSource = @"
                 #version 330 core
                 out vec4 FragColor;
-                
+
                 in vec2 TexCoord;
                 in vec3 Normal;
                 in vec3 FragPos;
-                
+
                 uniform sampler2D texture0;
                 uniform vec3 sunPosition;
                 uniform int isSun;
-                
+
                 void main()
                 {
                     vec4 textureColor = texture(texture0, TexCoord);
-                    
+
                     // If it's the sun, display without lighting
                     if (isSun == 1) {
                         FragColor = textureColor;
                         return;
                     }
-                    
+
                     // Calculate lighting for planets
                     vec3 lightDir = normalize(sunPosition - FragPos);
                     vec3 norm = normalize(Normal);
                     float diff = max(dot(norm, lightDir), 0.0);
-                    
+
                     // Simple lighting: day side bright, night side dark
                     float ambient = 0.2;
                     float lighting = ambient + (1.0 - ambient) * diff;
-                    
+
                     FragColor = textureColor * lighting;
                 }";
 
@@ -454,7 +424,6 @@ namespace Planetarium3D
             GL.AttachShader(_shaderProgram, frag);
             GL.LinkProgram(_shaderProgram);
 
-            // Check for linking errors
             GL.GetProgram(_shaderProgram, GetProgramParameterName.LinkStatus, out int success);
             if (success == 0)
             {
